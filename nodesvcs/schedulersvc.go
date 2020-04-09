@@ -1,5 +1,15 @@
 package nodesvcs
 
+import (
+	"fmt"
+	"net"
+	"os"
+	"sync"
+
+	"ire.com/clustershell/communicate"
+	"ire.com/clustershell/logger"
+)
+
 //PVTKEY -- THIS IS A VERY CONFIDENTIAL INFOMATION.
 //ONLY ASSIGN THIS VARIABLE BEFORE YOU BUILD BINARY EXECUTIVE,
 //AND REMOVE IT TO EMPTY AFTER YOUR BUIDING, AND MAKE SURE
@@ -33,7 +43,8 @@ Bv21dNuxipQlxsNqAW5MNORZbBEhVJs2+8brGXi/sIaT218W/RBVpxmNscFFC+Ygge2Yzv
 59XPyU0XqAmi0z/dAAAAHWNvbW1Ob2RlQGNsdXN0ZXJzaGVsbC5pcmUuY29tAQIDBAU=
 -----END OPENSSH PRIVATE KEY-----`
 
-	SCHUNIXSOCKET = `/run/ire_clshsheduler.sock`
+	SCHUNIXSOCKET   = `/var/run/ire_clshsheduler.sock`
+	SOCKETMSGMAXLEN = 1024 * 32
 
 	SHCUDPPORT = "0.0.0.0:52233"
 )
@@ -43,6 +54,8 @@ type SchedulerSVC struct {
 	privateKey string
 	unixSocket string
 	udpPort    string
+
+	wg *sync.WaitGroup
 }
 
 //Encrypt -- a func of commNode interface
@@ -77,13 +90,75 @@ func (s *SchedulerSVC) HandleListenOnUDP() error {
 
 //ListenOnUDP -- a func of commNode interface
 //lauch a continuous listening on UDP port
-func (s *SchedulerSVC) ListenOnUDP(port string) error {
+func (s *SchedulerSVC) ListenOnUDP() error {
+
 	return nil
 }
 
 //ListenOnUnixSocket -- a func of commNode interface
 //lauch a continuous listening on UNIX domain socket
-func (s *SchedulerSVC) ListenOnUnixSocket(unixSocket string) error {
+func (s *SchedulerSVC) ListenOnUnixSocket() error {
+	os.Remove(SCHUNIXSOCKET)
+	addr, err := net.ResolveUnixAddr("unix", s.unixSocket)
+	if err != nil {
+		return fmt.Errorf("failed to resolve: %v", err)
+	}
+
+	list, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen: %v", err)
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer list.Close()
+
+		for {
+			conn, err := list.AcceptUnix()
+			if err != nil {
+				logger.Error("failed to create connection on unix socket")
+				continue
+			}
+
+			s.wg.Add(1)
+			go func(conn *net.UnixConn) {
+				defer s.wg.Done()
+				defer conn.Close()
+
+				for {
+					buf := make([]byte, SOCKETMSGMAXLEN+1)
+					n, uaddr, err := conn.ReadFromUnix(buf)
+					if err != nil {
+						logger.Debug("unix socket ReadFromUnix:", err)
+						break
+					}
+					logger.Debug("ListenOnUnixSocket: received", n, "bytes from", uaddr)
+					logger.Debug("ListenOnUnixSocket:", string(buf))
+
+					//if n > SOCKETMSGMAXLEN {
+					//todo
+					//}
+
+					err = communicate.GetMSGListFromSocketBuf(buf[:n], conn)
+					if err != nil {
+						logger.Debug("GetMSGListFromSocketBuf:", err)
+						break
+					}
+					logger.Debug("GetMSGListFromSocketBuf got map len", len(communicate.SocketTasksMap))
+
+					for tid, task := range communicate.SocketTasksMap {
+						logger.Debug("tid=", tid, "task=", task)
+					}
+
+				}
+			}(conn)
+
+		}
+
+	}()
+
+	logger.Info("listening on ", s.unixSocket)
 	return nil
 }
 
@@ -94,14 +169,45 @@ func (s *SchedulerSVC) SendFile(fileName string, destIPPort string, destPath str
 
 //SendMsg -- a func of commNode interface
 func (s *SchedulerSVC) SendMsg(message []byte, destIPPort string) error {
+	sendPort, err := net.ListenPacket("udp", ":0")
+	defer sendPort.Close()
+
+	if err != nil {
+		logger.Error(err)
+	}
+
+	dst, err := net.ResolveUDPAddr("udp", destIPPort)
+	if err != nil {
+		return err
+	}
+
+	var srcidbuf [20]byte
+	copy(srcidbuf[:], []byte("SCHEDULER01"))
+	p := communicate.Packet{
+		SrcID:   srcidbuf,
+		TaskID:  communicate.TASKID,
+		Payload: message,
+	}
+
+	data, err := p.MarshalPacket()
+	if err != nil {
+		return err
+	}
+
+	_, err = sendPort.WriteTo(data, dst)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 //Init -- initialising key and port.
-func (s *SchedulerSVC) Init() error {
+func (s *SchedulerSVC) Init(wg *sync.WaitGroup) error {
 	s.privateKey = PVTKEY
 	s.unixSocket = SCHUNIXSOCKET
 	s.udpPort = SHCUDPPORT
+	s.wg = wg
 
 	return nil
 }

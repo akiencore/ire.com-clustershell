@@ -1,5 +1,14 @@
 package nodesvcs
 
+import (
+	"net"
+	"sync"
+
+	"ire.com/clustershell/communicate"
+
+	"ire.com/clustershell/logger"
+)
+
 //PUBKEY -- the public key of key pairs for communication between scheduler and executor
 //generate a key pair by following command in linux:
 //ssh-keygen -t rsa -P "" -C "commNode@clustershell.ire.com" -f /tmp/clustershell
@@ -7,9 +16,9 @@ package nodesvcs
 const (
 	PUBKEY = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDc0QK2LqxlU6StKJ7/3qZ+A5M4w2vaaDuub5BO5v+PPMn65CChdztoK9/QSermpTmc+rjSv2UJJSHqztRxr01DUehBuoOgT7LSh0GMm2HyobMpgVG6v/b8k2S//AkuxmltxkFzgUApBGsWWcgbn88HQLc3QF4P/60It9EMSwy7GEppdsvhGvfS5UyKqDD2Xuz8zHKP5WU1/lt4f1m44K1ZgZTzQv8r53des37m/TmVrYX1vBEflHSC7xTWF37WUXpET+jBru69zUoiM2jzbw89BX2i+S9fbDZTb5OAHVbnevQTNBmkt1D0uwcgur0Xw4hS/Vr/fpt2i9F6Askcougr commNode@clustershell.ire.com`
 
-	XCTUNIXSOCKET = `/run/ire_clshexecutor.sock`
+	XCTUNIXSOCKET = `/var/run/ire_clshexecutor.sock`
 
-	XCTUDPPORT = "0.0.0.0:33225"
+	XCTUDPPORT = ":33225"
 )
 
 //ExecutorSVC --
@@ -17,6 +26,9 @@ type ExecutorSVC struct {
 	publicKey  string
 	unixSocket string
 	udpPort    string
+
+	//WG -- waitgroup for this service
+	wg *sync.WaitGroup
 }
 
 //Encrypt -- a func of commNode interface
@@ -46,18 +58,43 @@ func (s *ExecutorSVC) HandleListenOnUnixSocket() error {
 //HandleListenOnUDP -- a func of commNode interface
 //handle recerived bytes stream on UDP port
 func (s *ExecutorSVC) HandleListenOnUDP() error {
+	recvPort, err := net.ListenPacket("udp", s.udpPort)
+	if err != nil {
+		logger.Error(err)
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer recvPort.Close()
+
+		for {
+			buf := make([]byte, 1024*40)
+			//n, addr, err := conn.ReadFrom(buf)
+			n, _, err := recvPort.ReadFrom(buf)
+			if err != nil {
+				logger.Error(err)
+				continue
+			}
+
+			p, err := communicate.UnMarshalPacket(buf[:n])
+			logger.Debug(n, "bytes got. data=", string(p.SrcID[:]),
+				string(p.Payload), p, err)
+		}
+	}()
+
 	return nil
 }
 
 //ListenOnUDP -- a func of commNode interface
 //lauch a continuous listening on UDP port
-func (s *ExecutorSVC) ListenOnUDP(port string) error {
+func (s *ExecutorSVC) ListenOnUDP() error {
 	return nil
 }
 
 //ListenOnUnixSocket -- a func of commNode interface
 //lauch a continuous listening on UNIX domain socket
-func (s *ExecutorSVC) ListenOnUnixSocket(unixSocket string) error {
+func (s *ExecutorSVC) ListenOnUnixSocket() error {
 	return nil
 }
 
@@ -72,10 +109,11 @@ func (s *ExecutorSVC) SendMsg(message []byte, destIPPort string) error {
 }
 
 //Init -- this is a default func which will be invoked automatically at instance creating.
-func (s *ExecutorSVC) Init() error {
+func (s *ExecutorSVC) Init(wg *sync.WaitGroup) error {
 	s.publicKey = PUBKEY
 	s.unixSocket = XCTUNIXSOCKET
 	s.udpPort = XCTUDPPORT
+	s.wg = wg
 
 	return nil
 }

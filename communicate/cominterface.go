@@ -1,5 +1,7 @@
 package communicate
 
+import "sync"
+
 //Crypter --
 /*Scheduler and Executor will commucate with each other in encrypted message by rsa key pairs.
 * Schedule encrypts message by private key before sending to Executor, and Executor decrypts
@@ -28,12 +30,12 @@ type CommNode interface {
 	PassiveHandler
 
 	//lauch a continuous listening on UDP port
-	ListenOnUDP(port string) error
+	ListenOnUDP() error
 	//lauch a continuous listening on UNIX domain socket
-	ListenOnUnixSocket(unixSocket string) error
+	ListenOnUnixSocket() error
 
 	SendFile(fileName string, destIPPort string, destPath string, fileMode []byte) error
 	SendMsg(message []byte, destIPPort string) error
 
-	Init() error
+	Init(wg *sync.WaitGroup) error
 }
