@@ -15,7 +15,7 @@ type thelogger struct {
 }
 
 //GLogger -- global logger.
-var GLogger = &thelogger{logger: log.New(os.Stdout, "CLUSTERSHELL-", log.Lshortfile)}
+var GLogger = &thelogger{logger: log.New(os.Stdout, "CLUSTERSHELL-", log.LstdFlags)}
 
 //Info --
 func Info(params ...interface{}) {

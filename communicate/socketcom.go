@@ -128,10 +128,10 @@ func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) error {
 			var m MSGObj
 			err = m.UnMarshalMSG(buf[startIdx:(i + 1)])
 			if err != nil {
-				logger.Error("UnMarshalMSG --", err)
+				logger.Error("UnMarshalMSG --", err) //todo: return err to caller
 			} else {
 
-				logger.Debug("got a MSGObj", m)
+				logger.Info("got a task message:", m)
 
 				TASKID++
 				SocketTasksMap[TASKID] = SocketTask{msgobj: &m, taskID: TASKID, conn: conn}
