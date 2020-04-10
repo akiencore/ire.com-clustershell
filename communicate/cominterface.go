@@ -1,6 +1,9 @@
 package communicate
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 //Crypter --
 /*Scheduler and Executor will commucate with each other in encrypted message by rsa key pairs.
@@ -21,7 +24,7 @@ type PassiveHandler interface {
 	//handle recerived bytes stream on local unix domain socket
 	HandleListenOnUnixSocket() error
 	//handle recerived bytes stream on UDP port
-	HandleListenOnUDP() error
+	HandleListenOnUDP(context.Context) error
 }
 
 //CommNode -- We use UDP to avoid maintaining a continuous connect which TCP must do.

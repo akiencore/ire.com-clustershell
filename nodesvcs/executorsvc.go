@@ -1,7 +1,10 @@
 package nodesvcs
 
 import (
+	"bufio"
+	"context"
 	"net"
+	"os/exec"
 	"sync"
 
 	"ire.com/clustershell/communicate"
@@ -21,11 +24,20 @@ const (
 	XCTUDPPORT = ":33225"
 )
 
+//LineChan -- for transferring cmd stdout and stderr
+type LineChan struct {
+	TaskID    communicate.TaskIDType
+	LineType  byte //1 -- stdout, 2 -- stderr
+	LineBytes []byte
+}
+
 //ExecutorSVC --
 type ExecutorSVC struct {
 	publicKey  string
 	unixSocket string
 	udpPort    string
+
+	LineChan chan LineChan
 
 	//WG -- waitgroup for this service
 	wg *sync.WaitGroup
@@ -57,11 +69,29 @@ func (s *ExecutorSVC) HandleListenOnUnixSocket() error {
 
 //HandleListenOnUDP -- a func of commNode interface
 //handle recerived bytes stream on UDP port
-func (s *ExecutorSVC) HandleListenOnUDP() error {
+func (s *ExecutorSVC) HandleListenOnUDP(ctx context.Context) error {
 	recvPort, err := net.ListenPacket("udp", s.udpPort)
 	if err != nil {
 		logger.Error(err)
 	}
+
+	//todo: send back cmd output to caller
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		i := 0
+		for {
+			select {
+			case lc := <-s.LineChan:
+				i++
+				logger.Debug(i, "got LineChan:", lc)
+				//todo send back to caller
+			case <-ctx.Done():
+				break
+			}
+		}
+	}()
 
 	s.wg.Add(1)
 	go func() {
@@ -71,19 +101,123 @@ func (s *ExecutorSVC) HandleListenOnUDP() error {
 		for {
 			buf := make([]byte, 1024*40)
 			//n, addr, err := conn.ReadFrom(buf)
-			n, _, err := recvPort.ReadFrom(buf)
+			n, adr, err := recvPort.ReadFrom(buf)
 			if err != nil {
 				logger.Error(err)
 				continue
 			}
 
-			p, err := communicate.UnMarshalPacket(buf[:n])
-			logger.Debug(n, "bytes got. data=", string(p.SrcID[:]),
-				string(p.Payload), p, err)
+			if n > 30 { //ignor nonsense short packets
+				p, err := communicate.UnMarshalPacket(buf[:n])
+				if err != nil {
+					continue //ignore all unacquainted msgs
+				}
+
+				m := new(communicate.MSGObj)
+				err = m.UnMarshalMSG(p.Payload)
+				if err != nil {
+					logger.Error("UnMarshalMSG --", err)
+					continue //ignore all unacquainted msgs
+				}
+
+				logger.Info("got a task:", *m, "from", adr)
+				go s.DoTask(ctx, m)
+				//logger.Debug(n, "bytes got. data=", string(p.SrcID[:]),
+				//	string(p.Payload), p, err)
+			}
 		}
 	}()
 
 	return nil
+}
+
+//DoTask --
+func (s *ExecutorSVC) DoTask(ctx context.Context, m *communicate.MSGObj) {
+	Tid := m.TaskID
+	defer logger.Debug(Tid, "exit DoTask...")
+
+	logger.Debug(Tid, "enter DoTask...")
+	if m.ObjType == communicate.ObjTypeShellCmd {
+
+		s.DoShellCMD(ctx, m.Obj.(communicate.ShellCMD).Script, Tid)
+
+	}
+}
+
+//DoShellCMD --
+func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
+	tid communicate.TaskIDType) {
+
+	logger.Debug(tid, "enter DoShellCMD...")
+
+	cmd := exec.CommandContext(ctx, "bash", cmdStr)
+
+	stdoutIn, _ := cmd.StdoutPipe()
+	stderrIn, _ := cmd.StderrPipe()
+
+	err := cmd.Start()
+	if err != nil {
+		logger.Error("cmd.Start() failed:", err)
+	}
+
+	innerWG := new(sync.WaitGroup)
+	innerWG.Add(1)
+	go func() {
+		defer innerWG.Done()
+
+		logger.Debug(tid, "enter goroutine stdoutIn ...")
+
+		scanner := bufio.NewScanner(stdoutIn)
+
+		for scanner.Scan() {
+			s.LineChan <- LineChan{
+				TaskID:    tid,
+				LineType:  1,
+				LineBytes: scanner.Bytes(),
+			}
+
+			select {
+			default:
+				continue
+			case <-ctx.Done():
+				break
+			}
+		}
+		logger.Debug(tid, "exit goroutine stdoutIn ...")
+	}()
+
+	innerWG.Add(1)
+	go func() {
+		defer innerWG.Done()
+		logger.Debug(tid, "enter goroutine stderrIn ...")
+
+		scanner := bufio.NewScanner(stderrIn)
+
+		for scanner.Scan() {
+			s.LineChan <- LineChan{
+				TaskID:    tid,
+				LineType:  1,
+				LineBytes: scanner.Bytes(),
+			}
+
+			select {
+			default:
+				continue
+			case <-ctx.Done():
+				break
+			}
+		}
+		logger.Debug(tid, "exit goroutine stderrIn ...")
+	}()
+
+	innerWG.Wait()
+
+	err = cmd.Wait()
+	if err != nil {
+		logger.Error("cmd.Run() failed:", err)
+	}
+
+	logger.Debug(tid, "exit DoShellCMD ...")
 }
 
 //ListenOnUDP -- a func of commNode interface

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -12,11 +13,15 @@ import (
 func main() {
 	var executorsvc communicate.CommNode
 
+	ctx := context.Background()
+
 	wg := new(sync.WaitGroup)
-	executorsvc = &nodesvcs.ExecutorSVC{}
+	lineChan := make(chan nodesvcs.LineChan, 1)
+	executorsvc = &nodesvcs.ExecutorSVC{LineChan: lineChan}
+
 	executorsvc.Init(wg)
 
-	executorsvc.HandleListenOnUDP()
+	executorsvc.HandleListenOnUDP(ctx)
 	logger.Info("Executor is ready to get command.")
 
 	fmt.Println(executorsvc)

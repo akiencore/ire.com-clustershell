@@ -9,6 +9,13 @@ import (
 	"ire.com/clustershell/logger"
 )
 
+const (
+	//ObjTypeTransFile -- type of transfer file
+	ObjTypeTransFile = "transfile"
+	//ObjTypeShellCmd -- type of shell command
+	ObjTypeShellCmd = "shellcmd"
+)
+
 //TransFile -- for transferring file between two nodes.
 type TransFile struct {
 	SrcFilePath  string
@@ -24,7 +31,8 @@ type ShellCMD struct {
 //MSGObj -- for transferring obj between two nodes.
 //receiver will do consequent action according to ObjType
 type MSGObj struct {
-	DestIP string
+	TaskID     TaskIDType
+	DestIPPort string
 	SrcID  string
 
 	//2 types: "shellcmd", "transfile"
@@ -45,15 +53,22 @@ type TaskIDType int64
 
 //TASKID -- the global task id for caller
 var (
-	TASKID         = TaskIDType(time.Now().UnixNano())
-	SocketTasksMap = make(map[TaskIDType]SocketTask)
+	TASKID = TaskIDType(time.Now().UnixNano())
 )
 
 //SocketTask --
 type SocketTask struct {
-	taskID TaskIDType
-	conn   *net.UnixConn
-	msgobj *MSGObj
+	TaskID TaskIDType
+	SocketConn   *net.UnixConn
+	Msgobj *MSGObj
+}
+
+//MarshalMSG --
+func (m *MSGObj) MarshalMSG() ([]byte, error) {
+
+	msgBytes, err := json.Marshal(m)
+
+	return msgBytes, err
 }
 
 //UnMarshalMSG --
@@ -63,23 +78,23 @@ func (m *MSGObj) UnMarshalMSG(data []byte) error {
 		return err
 	}
 
-	if m.ObjType == "shellcmd" {
+	if m.ObjType == ObjTypeShellCmd {
 		var sc ShellCMD
 
 		objstr, _ := json.Marshal(m.Obj)
 		err = json.Unmarshal(objstr, &sc)
 		if err != nil {
-			return fmt.Errorf("shellcmd Unmarshall:%v", err)
+			return fmt.Errorf("%s Unmarshall:%v", ObjTypeShellCmd, err)
 		}
 		m.Obj = sc
 
-	} else if m.ObjType == "transfile" {
+	} else if m.ObjType == ObjTypeTransFile {
 		var tf TransFile
 
-		objstr, _ := json.Marshal(m.Obj)
-		err = json.Unmarshal(objstr, &tf)
+		objBytes, _ := json.Marshal(m.Obj)
+		err = json.Unmarshal(objBytes, &tf)
 		if err != nil {
-			return fmt.Errorf("shellcmd Unmarshall:%v", err)
+			return fmt.Errorf("%s Unmarshall:%v", ObjTypeTransFile, err)
 		}
 		m.Obj = tf
 
@@ -94,14 +109,17 @@ func (m *MSGObj) UnMarshalMSG(data []byte) error {
 }
 
 //GetMSGListFromSocketBuf --
-func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) error {
+func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) (*map[TaskIDType]SocketTask, error) {
+	var (
+		err            error
+		socketTasksMap = make(map[TaskIDType]SocketTask)
+	)
+
 	defer func() {
-		logger.Debug("GetMSGListFromSocketBuf exit -- generated socket tasks:", len(SocketTasksMap))
+		logger.Debug("GetMSGListFromSocketBuf exit -- generated socket tasks:", len(socketTasksMap))
 	}()
 
 	logger.Debug("GetMSGListFromSocketBuf enter to analysize buf:", string(buf))
-
-	var err error
 
 	brace := 0
 	jsonStarted := false
@@ -121,7 +139,7 @@ func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) error {
 		}
 
 		if i > 0 && brace < 0 {
-			return fmt.Errorf("there is json format error of brace pairing")
+			return nil, fmt.Errorf("there is json format error of brace pairing")
 		}
 
 		if jsonStarted && brace == 0 {
@@ -134,12 +152,13 @@ func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) error {
 				logger.Info("got a task message:", m)
 
 				TASKID++
-				SocketTasksMap[TASKID] = SocketTask{msgobj: &m, taskID: TASKID, conn: conn}
+				m.TaskID = TASKID
+				socketTasksMap[TASKID] = SocketTask{Msgobj: &m, TaskID: TASKID, SocketConn: conn}
 			}
 
 			jsonStarted = false
 		}
 	}
 
-	return nil
+	return &socketTasksMap, nil
 }

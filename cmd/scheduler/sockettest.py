@@ -1,19 +1,28 @@
 import socket
 import os
 import json
+import time
 
-
-dict_shellcmd = {
-    "DestIP": "127.0.0.1", 
+dict_shellcmd1 = {
+    "DestIPPort": "127.0.0.1:33225", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "shellcmd",
     "obj": {
-        "script": "df -m"
+        "script": "/tmp/test.sh"
+        }
+}
+
+dict_shellcmd2 = {
+    "DestIPPort": "127.0.0.1:33225", 
+    "SrcID": "UMSP_Scheduler", 
+    "ObjType": "shellcmd",
+    "obj": {
+        "script": "df"
         }
 }
 
 dict_transfile = {
-    "DestIP": "127.0.0.1", 
+    "DestIPPort": "127.0.0.1:33225", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "transfile",
     "obj": {
@@ -24,7 +33,7 @@ dict_transfile = {
 }
 
 dict_notsupported = {
-    "DestIP": "127.0.0.1", 
+    "DestIPPort": "127.0.0.1:33225", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "notsupported",
     "obj": {
@@ -44,10 +53,14 @@ if os.path.exists(SCHUNIXSOCKET):
     print("Ready.")
     print("Ctrl-C to quit.")
 
-    client.send(json.dumps(dict_shellcmd).encode('utf-8'))
-    client.send(json.dumps(dict_notsupported).encode('utf-8'))
-    client.send(json.dumps(dict_transfile).encode('utf-8'))
+    for _ in range(5):
+        client.send(json.dumps(dict_shellcmd1).encode('utf-8'))
+        #client.send(json.dumps(dict_shellcmd2).encode('utf-8'))
+        #client.send(json.dumps(dict_notsupported).encode('utf-8'))
+        #client.send(json.dumps(dict_transfile).encode('utf-8'))
+        #time.sleep(1)
 
+    client.close()
 
     """
     print("Sending 'DONE' shuts down the server and quits.")

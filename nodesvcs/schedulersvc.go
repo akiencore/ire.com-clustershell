@@ -1,6 +1,7 @@
 package nodesvcs
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -84,7 +85,7 @@ func (s *SchedulerSVC) HandleListenOnUnixSocket() error {
 
 //HandleListenOnUDP -- a func of commNode interface
 //handle recerived bytes stream on UDP port
-func (s *SchedulerSVC) HandleListenOnUDP() error {
+func (s *SchedulerSVC) HandleListenOnUDP(ctx context.Context) error {
 	return nil
 }
 
@@ -130,8 +131,12 @@ func (s *SchedulerSVC) ListenOnUnixSocket() error {
 					buf := make([]byte, SOCKETMSGMAXLEN+1)
 					n, uaddr, err := conn.ReadFromUnix(buf)
 					if err != nil {
-						logger.Debug("unix socket ReadFromUnix:", err)
-						break
+						s := err.Error()
+						s = s[len(s)-3:]
+						if s != "EOF" {
+							logger.Debug("unix socket ReadFromUnix:", err)
+						}
+						break //connection is over
 					}
 					logger.Debug("ListenOnUnixSocket: received", n, "bytes from", uaddr)
 					logger.Debug("ListenOnUnixSocket:", string(buf))
@@ -140,25 +145,63 @@ func (s *SchedulerSVC) ListenOnUnixSocket() error {
 					//todo
 					//}
 
-					err = communicate.GetMSGListFromSocketBuf(buf[:n], conn)
+					pTasksOfConn, err := communicate.GetMSGListFromSocketBuf(buf[:n], conn)
 					if err != nil {
 						logger.Debug("GetMSGListFromSocketBuf:", err)
 						break
 					}
-					logger.Debug("GetMSGListFromSocketBuf got map len", len(communicate.SocketTasksMap))
+					logger.Debug("GetMSGListFromSocketBuf got map len", len(*pTasksOfConn))
 
-					for tid, task := range communicate.SocketTasksMap {
+					for tid, task := range *pTasksOfConn {
 						logger.Debug("tid=", tid, "task=", task)
-					}
+						err = s.LaunchTask(&task)
+						if err != nil {
+							logger.Error("LaunchTask --", err)
+						}
 
+						logger.Info("launched a task of", task.Msgobj.ObjType, "to",
+							task.Msgobj.DestIPPort, ", taskid =", task.TaskID)
+					}
 				}
 			}(conn)
-
 		}
 
 	}()
 
 	logger.Info("listening on ", s.unixSocket)
+	return nil
+}
+
+//LaunchTask --
+func (s *SchedulerSVC) LaunchTask(t *(communicate.SocketTask)) error {
+
+	if t.Msgobj.ObjType == communicate.ObjTypeShellCmd {
+		var srcidbuf [20]byte
+		copy(srcidbuf[:], t.Msgobj.SrcID)
+
+		msgBytes, err := t.Msgobj.MarshalMSG()
+		if err != nil {
+			return err
+		}
+
+		p := communicate.Packet{
+			PacketNum:  1,
+			Index:      0,
+			PayloadLen: 0,
+			Checksum:   0,
+			Payload:    msgBytes,
+		}
+
+		packetBytes, err := p.MarshalPacket()
+		if err != nil {
+			return err
+		}
+		err = s.SendMsg(packetBytes, t.Msgobj.DestIPPort)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -181,20 +224,7 @@ func (s *SchedulerSVC) SendMsg(message []byte, destIPPort string) error {
 		return err
 	}
 
-	var srcidbuf [20]byte
-	copy(srcidbuf[:], []byte("SCHEDULER01"))
-	p := communicate.Packet{
-		SrcID:   srcidbuf,
-		TaskID:  communicate.TASKID,
-		Payload: message,
-	}
-
-	data, err := p.MarshalPacket()
-	if err != nil {
-		return err
-	}
-
-	_, err = sendPort.WriteTo(data, dst)
+	_, err = sendPort.WriteTo(message, dst)
 	if err != nil {
 		return err
 	}

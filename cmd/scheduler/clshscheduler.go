@@ -24,26 +24,27 @@ func main() {
 		return
 	}
 
-	err = schsvc.SendMsg([]byte("Hello world!"), "127.0.0.1"+nodesvcs.XCTUDPPORT)
-	if err != nil {
-		logger.Error(err)
-	}
-
 	/*
-		err := schsvc.ListenOnUnixSocket()
-		if err != nil {
-			logger.Error(err)
-			return
-		}
-		logger.Info("Listening on unix socket...")
 
-		err = schsvc.ListenOnUDP()
+		err = schsvc.SendMsg([]byte("Hello world!"), "127.0.0.1"+nodesvcs.XCTUDPPORT)
 		if err != nil {
 			logger.Error(err)
-			return
 		}
-		logger.Info("Listening on UDP Port...")
-		logger.Info("Init completes.")
+
+			err := schsvc.ListenOnUnixSocket()
+			if err != nil {
+				logger.Error(err)
+				return
+			}
+			logger.Info("Listening on unix socket...")
+
+			err = schsvc.ListenOnUDP()
+			if err != nil {
+				logger.Error(err)
+				return
+			}
+			logger.Info("Listening on UDP Port...")
+			logger.Info("Init completes.")
 	*/
 	//	fmt.Println(schsvc)
 

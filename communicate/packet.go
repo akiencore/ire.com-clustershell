@@ -10,17 +10,12 @@ const (
 	//MAXPAYLOADLEN --
 	MAXPAYLOADLEN = 32 * 1024 //32K Bytes
 
-	//HOSTIDLEN - the string length of the identity of source host
-	HOSTIDLEN = 20
-
 	//HEADERLEN -  the length of packet header (other fields except of Data)
-	HEADERLEN = HOSTIDLEN + 8 + 4*4
+	HEADERLEN = 4 * 4
 )
 
 //Packet -- means udp packet
 type Packet struct {
-	SrcID      [HOSTIDLEN]byte
-	TaskID     TaskIDType
 	PacketNum  uint32
 	Index      uint32
 	PayloadLen uint32
@@ -38,17 +33,7 @@ func (p *Packet) MarshalPacket() ([]byte, error) {
 
 	buf := new(bytes.Buffer)
 
-	err := binary.Write(buf, binary.BigEndian, p.SrcID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = binary.Write(buf, binary.BigEndian, p.TaskID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = binary.Write(buf, binary.BigEndian, p.PacketNum)
+	err := binary.Write(buf, binary.BigEndian, p.PacketNum)
 	if err != nil {
 		return nil, err
 	}
@@ -82,17 +67,7 @@ func UnMarshalPacket(data []byte) (*Packet, error) {
 
 	reader := bytes.NewReader(data)
 
-	err := binary.Read(reader, binary.BigEndian, &p.SrcID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = binary.Read(reader, binary.BigEndian, &p.TaskID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = binary.Read(reader, binary.BigEndian, &p.PacketNum)
+	err := binary.Read(reader, binary.BigEndian, &p.PacketNum)
 	if err != nil {
 		return nil, err
 	}
