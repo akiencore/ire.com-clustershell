@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"ire.com/clustershell/communicate"
@@ -45,13 +46,16 @@ Bv21dNuxipQlxsNqAW5MNORZbBEhVJs2+8brGXi/sIaT218W/RBVpxmNscFFC+Ygge2Yzv
 -----END OPENSSH PRIVATE KEY-----`
 
 	SCHUNIXSOCKET = `/var/run/ire_clshsheduler.sock`
+	//SCHDLPRGNAME -- name of this program
+	SCHDLPRGNAME = "CSSch"
+	SCHDLPATH    = "/opt/" + SCHDLPRGNAME + "/"
 )
 
 //SendMsgChan --
 type SendMsgChan struct {
-	TaskID     communicate.TaskIDType
-	Message    []byte
-	DestIPPort string
+	TaskID  string
+	Message []byte
+	DestIP  string
 }
 
 //SchedulerSVC --
@@ -64,6 +68,9 @@ type SchedulerSVC struct {
 
 	wg  *sync.WaitGroup
 	ctx context.Context
+
+	StdoutFileMap map[string]*os.File //taskid is key
+	StderrFileMap map[string]*os.File
 }
 
 //Encrypt -- a func of commNode interface
@@ -76,25 +83,6 @@ func (s *SchedulerSVC) Encrypt(unEncrypted []byte, comKey string) (
 func (s *SchedulerSVC) Decrpyt(encrypted []byte, comKey string) (
 	unEncrypted []byte, err error) {
 	return nil, nil
-}
-
-//HandleListenOnUnixSocket -- a func of commNode interface
-//handle recerived bytes stream on local unix domain socket
-func (s *SchedulerSVC) HandleListenOnUnixSocket() error {
-	return nil
-}
-
-//HandleListenOnUDP -- a func of commNode interface
-//handle recerived bytes stream on UDP port
-func (s *SchedulerSVC) HandleListenOnUDP() error {
-	return nil
-}
-
-//ListenOnUDP -- a func of commNode interface
-//lauch a continuous listening on UDP port
-func (s *SchedulerSVC) ListenOnUDP() error {
-
-	return nil
 }
 
 //HandleUnixSocket -- a func of commNode interface
@@ -130,7 +118,7 @@ func (s *SchedulerSVC) HandleUnixSocket() error {
 
 				for {
 					buf := make([]byte, communicate.MSGMAXLEN+1)
-					n, uaddr, err := conn.ReadFromUnix(buf)
+					n, _, err := conn.ReadFromUnix(buf)
 					if err != nil {
 						s := err.Error()
 						s = s[len(s)-3:]
@@ -139,8 +127,7 @@ func (s *SchedulerSVC) HandleUnixSocket() error {
 						}
 						break //connection is over
 					}
-					logger.Debug("ListenOnUnixSocket: received", n, "bytes from", uaddr)
-					logger.Debug("ListenOnUnixSocket:", string(buf))
+					logger.Debug("received", n, "bytes:", string(buf))
 
 					//if n > SOCKETMSGMAXLEN {
 					//todo
@@ -161,12 +148,11 @@ func (s *SchedulerSVC) HandleUnixSocket() error {
 						}
 
 						logger.Info("launched a task of", task.Msgobj.ObjType, "to",
-							task.Msgobj.DestIPPort, ", taskid =", task.TaskID)
+							task.Msgobj.DestIP, ", taskid =", task.TaskID)
 					}
 				}
 			}(conn)
 		}
-
 	}()
 
 	logger.Info("listening on ", s.unixSocket)
@@ -199,9 +185,9 @@ func (s *SchedulerSVC) LaunchTask(t *(communicate.SocketTask)) error {
 		}
 
 		s.SendMsgChan <- SendMsgChan{
-			TaskID:     t.TaskID,
-			Message:    packetBytes,
-			DestIPPort: t.Msgobj.DestIPPort,
+			TaskID:  t.TaskID,
+			Message: packetBytes,
+			DestIP:  t.Msgobj.DestIP,
 		}
 
 	}
@@ -236,7 +222,7 @@ func (s *SchedulerSVC) HandleSendPort() error {
 				logger.Debug(i, "send task", sm.TaskID)
 
 				//send back to caller
-				dst, err := net.ResolveUDPAddr("udp", sm.DestIPPort)
+				dst, err := net.ResolveUDPAddr("udp", sm.DestIP+communicate.XCTRECVPPORT)
 				if err != nil {
 					logger.Debug("HandleSendPort-ResolveUDPAddr-", err)
 					continue
@@ -253,6 +239,73 @@ func (s *SchedulerSVC) HandleSendPort() error {
 			}
 		}
 	}()
+
+	return nil
+}
+
+func getOutFileNames(taskID string) (string, string) {
+	stdOutPath := fmt.Sprintf("%sstdout_%s.txt", SCHDLPATH, taskID)
+	stdErrPath := fmt.Sprintf("%sstderr_%s.txt", SCHDLPATH, taskID)
+
+	return stdOutPath, stdErrPath
+}
+
+func (s *SchedulerSVC) getOutFileHandler(ltype byte, ml *communicate.MSGLine) (*os.File, error) {
+	var err error
+	var f *os.File
+
+	tidStr := ml.TaskID
+	stdOutPath, stdErrPath := getOutFileNames(tidStr)
+
+	logger.Info("got out files:", stdOutPath, stdErrPath)
+
+	if ltype == STDERR {
+		f = s.StderrFileMap[tidStr]
+		if f == nil {
+
+			f, err = os.OpenFile(stdErrPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return nil, err
+			}
+			s.StderrFileMap[tidStr] = f
+		}
+	} else if ltype == STDOUT {
+		f = s.StdoutFileMap[tidStr]
+		if f == nil {
+
+			f, err = os.OpenFile(stdOutPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return nil, err
+			}
+			s.StdoutFileMap[tidStr] = f
+		}
+	}
+
+	return f, nil
+}
+
+//WriteOutFile --
+func (s *SchedulerSVC) WriteOutFile(ltype byte, ml *communicate.MSGLine) error {
+
+	f, err := s.getOutFileHandler(ltype, ml)
+	if err != nil {
+		return err
+	}
+
+	if _, err := f.WriteString(ml.Line + "\n"); err != nil {
+		return err
+	}
+
+	if strings.Contains(ml.Line, communicate.EOF) {
+		if err := f.Close(); err != nil {
+			return err
+		}
+		if ltype == STDERR {
+			delete(s.StderrFileMap, string(ml.TaskID))
+		} else if ltype == STDOUT {
+			delete(s.StdoutFileMap, string(ml.TaskID))
+		}
+	}
 
 	return nil
 }
@@ -285,17 +338,21 @@ func (s *SchedulerSVC) HandleRecvPort() error {
 			}
 
 			if n > 0 {
-				lineTypeStr := communicate.STDOUTSTR
-				if buf[n-1] == STDERR {
-					lineTypeStr = communicate.STDERRSTR
+				rTL, err := communicate.UnMarshalTL(buf[:n])
+				if err != nil {
+					logger.Error("UnMarshalTL-", err)
 				}
-				logger.Debug("HandleRecvPort-", "got line of", lineTypeStr, "--", string(buf[:(n-1)]))
 
-				lenEOF := len(communicate.EOF)
-				if n >= lenEOF && string(buf[(n-lenEOF-1):(n-1)]) == communicate.EOF {
-					//todo   ---- unix socket
+				ml := communicate.MSGLine{}
+				if err = ml.UnMarshalMSG(rTL.LineBytes); err != nil {
+					logger.Error("UnMarshalMSG-", err)
+					continue
+				}
 
-					//break
+				//todo -- write to task return file
+				logger.Debug("taskid:", ml.TaskID, "type:", rTL.LineType, "line:", ml.Line)
+				if err := s.WriteOutFile(rTL.LineType, &ml); err != nil {
+					logger.Error("WriteOutFile-", err)
 				}
 			}
 
@@ -322,7 +379,15 @@ func (s *SchedulerSVC) Init(ctx context.Context, wg *sync.WaitGroup) error {
 	s.wg = wg
 	s.ctx = ctx
 
-	err := s.HandleSendPort()
+	s.StdoutFileMap = make(map[string]*os.File)
+	s.StderrFileMap = make(map[string]*os.File)
+
+	err := os.MkdirAll(SCHDLPATH, os.ModePerm)
+	if err != nil {
+		return nil
+	}
+
+	err = s.HandleSendPort()
 	if err != nil {
 		return nil
 	}

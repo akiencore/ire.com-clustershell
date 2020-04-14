@@ -19,6 +19,12 @@ type thelogger struct {
 //GLogger -- global logger.
 var GLogger = &thelogger{logger: log.New(os.Stdout, "CLUSTERSHELL-", log.LstdFlags)}
 
+
+//SetPrefix --
+func SetPrefix(prefix string) {
+	GLogger.logger.SetPrefix(prefix)
+}
+
 //Info --
 func Info(params ...interface{}) {
 	pc, fn, line, _ := runtime.Caller(1)

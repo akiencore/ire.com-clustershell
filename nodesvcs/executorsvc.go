@@ -25,14 +25,15 @@ const (
 
 	STDOUT = 1
 	STDERR = 2
+
+	//XCTPRGNAME -- name of this program
+	XCTPRGNAME = "CSXct"
 )
 
 //ReturnLineChan -- for transferring cmd stdout and stderr
 type ReturnLineChan struct {
-	LineType  byte //1 -- stdout, 2 -- stderr
-	LineBytes []byte
-	TaskID    communicate.TaskIDType
-	ReturnAdr net.Addr
+	ReturnLine communicate.ReturnTaskLine
+	ReturnAdr  net.Addr
 }
 
 //ExecutorSVC --
@@ -60,18 +61,6 @@ func (s *ExecutorSVC) Encrypt(unEncrypted []byte, comKey string) (
 func (s *ExecutorSVC) Decrpyt(encrypted []byte, comKey string) (
 	unEncrypted []byte, err error) {
 	return nil, nil
-}
-
-//HandleSendMsg -- a func of commNode interface
-//handle returned message after invoking SendMsg
-func (s *ExecutorSVC) HandleSendMsg(taskID communicate.TaskIDType, pc net.PacketConn, timeOutSec int) error {
-	return nil
-}
-
-//HandleListenOnUnixSocket -- a func of commNode interface
-//handle recerived bytes stream on local unix domain socket
-func (s *ExecutorSVC) HandleListenOnUnixSocket() error {
-	return nil
 }
 
 //HandleRecvPort -- a func of commNode interface
@@ -124,20 +113,46 @@ func (s *ExecutorSVC) HandleRecvPort() error {
 
 //DoTask --
 func (s *ExecutorSVC) DoTask(ctx context.Context, m *communicate.MSGObj, adr net.Addr) {
-	Tid := m.TaskID
-	defer logger.Debug(Tid, "exit DoTask...")
+	tid := m.TaskID
+	defer logger.Debug(tid, "exit DoTask...")
 
-	logger.Debug(Tid, "enter DoTask...")
+	logger.Debug(tid, "enter DoTask...")
 	if m.ObjType == communicate.ObjTypeShellCmd {
 
-		s.DoShellCMD(ctx, m.Obj.(communicate.ShellCMD).Script, Tid, adr)
+		s.DoShellCMD(ctx, m.Obj.(communicate.ShellCMD).Script, tid, adr)
 
 	}
 }
 
+func wrapStdoutLineChan(tid string, ltype byte,
+	lbytes []byte, adr net.Addr) (*ReturnLineChan, error) {
+
+	var r ReturnLineChan
+
+	ml := communicate.MSGLine{
+		TaskID: tid,
+		Line:   string(lbytes),
+	}
+
+	lineBytes, err := ml.MarshalMSG()
+	if err != nil {
+		return nil, err
+	}
+
+	r = ReturnLineChan{
+		ReturnLine: communicate.ReturnTaskLine{
+			LineType:  ltype,
+			LineBytes: lineBytes,
+		},
+		ReturnAdr: adr,
+	}
+
+	return &r, nil
+}
+
 //DoShellCMD --
 func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
-	tid communicate.TaskIDType, adr net.Addr) {
+	tid string, adr net.Addr) {
 
 	logger.Debug(tid, "enter DoShellCMD...")
 
@@ -153,7 +168,7 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 
 	innerWG := new(sync.WaitGroup)
 	innerWG.Add(1)
-	go func(tid communicate.TaskIDType, stdoutIn io.ReadCloser, adr net.Addr) {
+	go func(tid string, stdoutIn io.ReadCloser, adr net.Addr) {
 		defer innerWG.Done()
 
 		logger.Debug(tid, "enter goroutine stdoutIn ...")
@@ -161,12 +176,14 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 		scanner := bufio.NewScanner(stdoutIn)
 
 		for scanner.Scan() {
-			s.ReturnLineChan <- ReturnLineChan{
-				TaskID:    tid,
-				LineType:  STDOUT,
-				LineBytes: scanner.Bytes(),
-				ReturnAdr: adr,
+
+			rLC, err := wrapStdoutLineChan(tid, STDOUT, scanner.Bytes(), adr)
+			if err != nil {
+				logger.Error("wrapStdoutLineChan1-", err)
+				continue
 			}
+
+			s.ReturnLineChan <- *rLC
 
 			select {
 			default:
@@ -176,30 +193,31 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 			}
 		}
 
-		s.ReturnLineChan <- ReturnLineChan{
-			TaskID:    tid,
-			LineType:  STDOUT,
-			LineBytes: []byte(communicate.STDOUTEOF),
-			ReturnAdr: adr,
+		rLC, err := wrapStdoutLineChan(tid, STDOUT, []byte(communicate.STDOUTEOF), adr)
+		if err != nil {
+			logger.Error("wrapStdoutLineChan2-", err)
+		} else {
+			s.ReturnLineChan <- *rLC
 		}
 
 		logger.Debug(tid, "exit goroutine stdoutIn ...")
 	}(tid, stdoutIn, adr)
 
 	innerWG.Add(1)
-	go func(tid communicate.TaskIDType, stderrIn io.ReadCloser, adr net.Addr) {
+	go func(tid string, stderrIn io.ReadCloser, adr net.Addr) {
 		defer innerWG.Done()
 		logger.Debug(tid, "enter goroutine stderrIn ...")
 
 		scanner := bufio.NewScanner(stderrIn)
 
 		for scanner.Scan() {
-			s.ReturnLineChan <- ReturnLineChan{
-				TaskID:    tid,
-				LineType:  STDERR,
-				LineBytes: scanner.Bytes(),
-				ReturnAdr: adr,
+			rLC, err := wrapStdoutLineChan(tid, STDERR, scanner.Bytes(), adr)
+			if err != nil {
+				logger.Error("wrapStdoutLineChan3-", err)
+				continue
 			}
+
+			s.ReturnLineChan <- *rLC
 
 			select {
 			default:
@@ -208,11 +226,12 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 				break
 			}
 		}
-		s.ReturnLineChan <- ReturnLineChan{
-			TaskID:    tid,
-			LineType:  STDERR,
-			LineBytes: []byte(communicate.STDERREOF),
-			ReturnAdr: adr,
+
+		rLC, err := wrapStdoutLineChan(tid, STDERR, []byte(communicate.STDERREOF), adr)
+		if err != nil {
+			logger.Error("wrapStdoutLineChan2-", err)
+		} else {
+			s.ReturnLineChan <- *rLC
 		}
 
 		logger.Debug(tid, "exit goroutine stderrIn ...")
@@ -251,7 +270,7 @@ func (s *ExecutorSVC) HandleSendPort() error {
 			select {
 			case lc := <-s.ReturnLineChan:
 				i++
-				logger.Debug(i, "got LineChan:", lc)
+				logger.Debug(i, "got LineChan, bytes number:", len(lc.ReturnLine.LineBytes))
 
 				//send back to caller
 				str := lc.ReturnAdr.String()
@@ -259,13 +278,20 @@ func (s *ExecutorSVC) HandleSendPort() error {
 				dststr := str[:ipright] + communicate.SCHRECVPPORT
 				dst, err := net.ResolveUDPAddr("udp", dststr)
 				if err != nil {
-					logger.Debug("ReturnLinesOnUDP-ResolveUDPAddr-", err)
+					logger.Error("ResolveUDPAddr-", err)
 					continue
 				}
 
-				_, err = s.SendPC.WriteTo(append(lc.LineBytes, byte(lc.LineType)), dst)
+				returnLine, err := lc.ReturnLine.MarshalTL()
 				if err != nil {
-					logger.Debug("ReturnLinesOnUDP-WriteTo-", err)
+					logger.Error("MarshalTL-", err)
+					continue
+				}
+				logger.Debug(i, "after marshal, returnLine bytes number:", len(returnLine))
+
+				_, err = s.SendPC.WriteTo(returnLine, dst)
+				if err != nil {
+					logger.Error("WriteTo-", err)
 					continue
 				}
 

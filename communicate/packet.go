@@ -30,8 +30,8 @@ const (
 	//STDOUTSTR --
 	STDOUTSTR = "STDOUT"
 	//STDERRSTR --
-	STDERRSTR = "STDOUT"
-	
+	STDERRSTR = "STDERR"
+
 	//STDOUTEOF -- end signal of stdout line
 	STDOUTEOF = STDOUTSTR + EOF
 	//STDERREOF -- end signal of stderr line
@@ -48,6 +48,53 @@ type Packet struct {
 	PayloadLen uint32
 	Checksum   uint32
 	Payload    []byte
+}
+
+//ReturnTaskLine --
+type ReturnTaskLine struct {
+	LineType  byte   //1 -- stdout, 2 -- stderr
+	LineBytes []byte //marshaled MSGLine
+}
+
+//MarshalTL --
+func (r *ReturnTaskLine) MarshalTL() ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	err := binary.Write(buf, binary.BigEndian, r.LineType)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Write(buf, binary.BigEndian, r.LineBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+//UnMarshalTL --
+func UnMarshalTL(data []byte) (*ReturnTaskLine, error) {
+	var r ReturnTaskLine
+
+	reader := bytes.NewReader(data)
+
+	err := binary.Read(reader, binary.BigEndian, &r.LineType)
+	if err != nil {
+		return nil, err
+	}
+
+	lineBytes := make([]byte, len(data)-1) //int64 + byte --> 9
+
+	err = binary.Read(reader, binary.BigEndian, &lineBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	r.LineBytes = lineBytes
+
+	return &r, nil
+
 }
 
 //MarshalPacket -

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 
 	"ire.com/clustershell/communicate"
@@ -14,11 +13,11 @@ import (
 func main() {
 	var executorsvc communicate.CommNode
 
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	logger.SetPrefix(nodesvcs.XCTPRGNAME + "-")
 	ctx := context.Background()
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
-	
+
 	returnLineChan := make(chan nodesvcs.ReturnLineChan, 1)
 	executorsvc = &nodesvcs.ExecutorSVC{ReturnLineChan: returnLineChan}
 
@@ -31,6 +30,5 @@ func main() {
 	logger.Info("Executor is ready to get command.")
 
 	fmt.Println(executorsvc)
-
 
 }

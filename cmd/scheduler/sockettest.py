@@ -4,7 +4,8 @@ import json
 import time
 
 dict_shellcmd1 = {
-    "DestIPPort": "127.0.0.1:33235", 
+    "TaskID": "t000001",
+    "DestIP": "127.0.0.1", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "shellcmd",
     "obj": {
@@ -13,7 +14,8 @@ dict_shellcmd1 = {
 }
 
 dict_shellcmd2 = {
-    "DestIPPort": "127.0.0.1:33235", 
+    "TaskID": "t000002",
+    "DestIP": "127.0.0.1", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "shellcmd",
     "obj": {
@@ -22,7 +24,8 @@ dict_shellcmd2 = {
 }
 
 dict_transfile = {
-    "DestIPPort": "127.0.0.1:33235", 
+    "TaskID": "t000003",
+    "DestIP": "127.0.0.1", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "transfile",
     "obj": {
@@ -33,7 +36,8 @@ dict_transfile = {
 }
 
 dict_notsupported = {
-    "DestIPPort": "127.0.0.1:33235", 
+    "TaskID": "t000004",
+    "DestIP": "127.0.0.1", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "notsupported",
     "obj": {

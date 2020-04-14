@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"ire.com/clustershell/logger"
@@ -11,10 +10,11 @@ import (
 	"ire.com/clustershell/nodesvcs"
 )
 
+
 func main() {
 	var schsvc communicate.CommNode
 
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	logger.SetPrefix(nodesvcs.SCHDLPRGNAME + "-")
 	ctx := context.Background()
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
