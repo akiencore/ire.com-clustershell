@@ -1,8 +1,10 @@
 package logger
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"runtime"
 )
 
 const (
@@ -19,22 +21,30 @@ var GLogger = &thelogger{logger: log.New(os.Stdout, "CLUSTERSHELL-", log.LstdFla
 
 //Info --
 func Info(params ...interface{}) {
-	GLogger.logger.Print("Info -- ", params)
+	pc, fn, line, _ := runtime.Caller(1)
+	GLogger.logger.Print(fmt.Sprintf("[Info] in %s[%s:%d]", runtime.FuncForPC(pc).Name(), fn, line), params)
+	//GLogger.logger.Print("Info -- ", params)
 }
 
 //Warning --
 func Warning(params ...interface{}) {
-	GLogger.logger.Print("Warning -- ", params)
+	pc, fn, line, _ := runtime.Caller(1)
+	GLogger.logger.Print(fmt.Sprintf("[Warning] in %s[%s:%d]", runtime.FuncForPC(pc).Name(), fn, line), params)
+	//GLogger.logger.Print("Warning -- ", params)
 }
 
 //Error --
 func Error(params ...interface{}) {
-	GLogger.logger.Print("Error -- ", params)
+	pc, fn, line, _ := runtime.Caller(1)
+	GLogger.logger.Print(fmt.Sprintf("[Error] in %s[%s:%d]", runtime.FuncForPC(pc).Name(), fn, line), params)
+	//GLogger.logger.Print("Error -- ", params)
 }
 
 //Debug --
 func Debug(params ...interface{}) {
 	if isDEBUG {
-		GLogger.logger.Print("Debug -- ", params)
+		pc, fn, line, _ := runtime.Caller(1)
+		GLogger.logger.Print(fmt.Sprintf("[Debug] in %s[%s:%d]", runtime.FuncForPC(pc).Name(), fn, line), params)
+		//	GLogger.logger.Print("Debug -- ", params)
 	}
 }

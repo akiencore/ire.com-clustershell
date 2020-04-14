@@ -4,7 +4,7 @@ import json
 import time
 
 dict_shellcmd1 = {
-    "DestIPPort": "127.0.0.1:33225", 
+    "DestIPPort": "127.0.0.1:33235", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "shellcmd",
     "obj": {
@@ -13,7 +13,7 @@ dict_shellcmd1 = {
 }
 
 dict_shellcmd2 = {
-    "DestIPPort": "127.0.0.1:33225", 
+    "DestIPPort": "127.0.0.1:33235", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "shellcmd",
     "obj": {
@@ -22,7 +22,7 @@ dict_shellcmd2 = {
 }
 
 dict_transfile = {
-    "DestIPPort": "127.0.0.1:33225", 
+    "DestIPPort": "127.0.0.1:33235", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "transfile",
     "obj": {
@@ -33,7 +33,7 @@ dict_transfile = {
 }
 
 dict_notsupported = {
-    "DestIPPort": "127.0.0.1:33225", 
+    "DestIPPort": "127.0.0.1:33235", 
     "SrcID": "UMSP_Scheduler", 
     "ObjType": "notsupported",
     "obj": {
@@ -53,7 +53,7 @@ if os.path.exists(SCHUNIXSOCKET):
     print("Ready.")
     print("Ctrl-C to quit.")
 
-    for _ in range(5):
+    for _ in range(1):
         client.send(json.dumps(dict_shellcmd1).encode('utf-8'))
         #client.send(json.dumps(dict_shellcmd2).encode('utf-8'))
         #client.send(json.dumps(dict_notsupported).encode('utf-8'))

@@ -17,28 +17,20 @@ type Crypter interface {
 	Decrpyt(encrypted []byte, comKey string) (unEncrypted []byte, err error)
 }
 
-//PassiveHandler -- the passive processing functions
-type PassiveHandler interface {
-	// handle returned message after invoking SendMsg
-	HandleSendMsg() error
-	//handle recerived bytes stream on local unix domain socket
-	HandleListenOnUnixSocket() error
-	//handle recerived bytes stream on UDP port
-	HandleListenOnUDP(context.Context) error
-}
-
 //CommNode -- We use UDP to avoid maintaining a continuous connect which TCP must do.
 type CommNode interface {
 	Crypter
-	PassiveHandler
 
-	//lauch a continuous listening on UDP port
-	ListenOnUDP() error
-	//lauch a continuous listening on UNIX domain socket
-	ListenOnUnixSocket() error
+	//handle recerived bytes stream on local unix domain socket
+	HandleUnixSocket() error
+	//handle udp sending port
+	HandleSendPort() error
+	//handle udp receiving port
+	HandleRecvPort() error
 
-	SendFile(fileName string, destIPPort string, destPath string, fileMode []byte) error
-	SendMsg(message []byte, destIPPort string) error
+	//funcs to wrap kinds of message to packet
+	//SendFile(fileName string, destIPPort string, destPath string, fileMode []byte) ([]byte, error)
+	//SendMsg(taskID TaskIDType, message []byte, destIPPort string) ([]byte, error)
 
-	Init(wg *sync.WaitGroup) error
+	Init(ctx context.Context, wg *sync.WaitGroup) error
 }

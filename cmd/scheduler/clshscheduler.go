@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"log"
 	"sync"
 
 	"ire.com/clustershell/logger"
@@ -12,15 +14,18 @@ import (
 func main() {
 	var schsvc communicate.CommNode
 
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	ctx := context.Background()
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
-	schsvc = &nodesvcs.SchedulerSVC{}
-	schsvc.Init(wg)
-
-	err := schsvc.ListenOnUnixSocket()
+	sendMsgChan := make(chan nodesvcs.SendMsgChan, 1)
+	schsvc = &nodesvcs.SchedulerSVC{
+		SendMsgChan: sendMsgChan,
+	}
+	err := schsvc.Init(ctx, wg)
 	if err != nil {
-		logger.Error(err)
+		logger.Error("Init:", err)
 		return
 	}
 

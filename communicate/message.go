@@ -14,6 +14,8 @@ const (
 	ObjTypeTransFile = "transfile"
 	//ObjTypeShellCmd -- type of shell command
 	ObjTypeShellCmd = "shellcmd"
+	//MSGMAXLEN --
+	MSGMAXLEN = 1024 * 32
 )
 
 //TransFile -- for transferring file between two nodes.
