@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"ire.com/clustershell/communicate"
@@ -44,19 +45,32 @@ Bv21dNuxipQlxsNqAW5MNORZbBEhVJs2+8brGXi/sIaT218W/RBVpxmNscFFC+Ygge2Yzv
 59XPyU0XqAmi0z/dAAAAHWNvbW1Ob2RlQGNsdXN0ZXJzaGVsbC5pcmUuY29tAQIDBAU=
 -----END OPENSSH PRIVATE KEY-----`
 
-	SCHUNIXSOCKET   = `/var/run/ire_clshsheduler.sock`
-	SOCKETMSGMAXLEN = 1024 * 32
-
-	SHCUDPPORT = "0.0.0.0:52233"
+	SCHUNIXSOCKET = `/var/run/ire_clshsheduler.sock`
+	//SCHDLPRGNAME -- name of this program
+	SCHDLPRGNAME = "CSSch"
+	SCHDLPATH    = "/opt/" + SCHDLPRGNAME + "/"
 )
+
+//SendMsgChan --
+type SendMsgChan struct {
+	TaskID  string
+	Message []byte
+	DestIP  string
+}
 
 //SchedulerSVC --
 type SchedulerSVC struct {
-	privateKey string
-	unixSocket string
-	udpPort    string
+	privateKey  string
+	unixSocket  string
+	RecvPC      net.PacketConn //coresponding to recvPort
+	SendPC      net.PacketConn //coresponding to sendPort
+	SendMsgChan chan SendMsgChan
 
-	wg *sync.WaitGroup
+	wg  *sync.WaitGroup
+	ctx context.Context
+
+	StdoutFileMap map[string]*os.File //taskid is key
+	StderrFileMap map[string]*os.File
 }
 
 //Encrypt -- a func of commNode interface
@@ -71,34 +85,9 @@ func (s *SchedulerSVC) Decrpyt(encrypted []byte, comKey string) (
 	return nil, nil
 }
 
-//HandleSendMsg -- a func of commNode interface
-//handle returned message after invoking SendMsg
-func (s *SchedulerSVC) HandleSendMsg() error {
-	return nil
-}
-
-//HandleListenOnUnixSocket -- a func of commNode interface
-//handle recerived bytes stream on local unix domain socket
-func (s *SchedulerSVC) HandleListenOnUnixSocket() error {
-	return nil
-}
-
-//HandleListenOnUDP -- a func of commNode interface
-//handle recerived bytes stream on UDP port
-func (s *SchedulerSVC) HandleListenOnUDP(ctx context.Context) error {
-	return nil
-}
-
-//ListenOnUDP -- a func of commNode interface
-//lauch a continuous listening on UDP port
-func (s *SchedulerSVC) ListenOnUDP() error {
-
-	return nil
-}
-
-//ListenOnUnixSocket -- a func of commNode interface
+//HandleUnixSocket -- a func of commNode interface
 //lauch a continuous listening on UNIX domain socket
-func (s *SchedulerSVC) ListenOnUnixSocket() error {
+func (s *SchedulerSVC) HandleUnixSocket() error {
 	os.Remove(SCHUNIXSOCKET)
 	addr, err := net.ResolveUnixAddr("unix", s.unixSocket)
 	if err != nil {
@@ -128,8 +117,8 @@ func (s *SchedulerSVC) ListenOnUnixSocket() error {
 				defer conn.Close()
 
 				for {
-					buf := make([]byte, SOCKETMSGMAXLEN+1)
-					n, uaddr, err := conn.ReadFromUnix(buf)
+					buf := make([]byte, communicate.MSGMAXLEN+1)
+					n, _, err := conn.ReadFromUnix(buf)
 					if err != nil {
 						s := err.Error()
 						s = s[len(s)-3:]
@@ -138,8 +127,7 @@ func (s *SchedulerSVC) ListenOnUnixSocket() error {
 						}
 						break //connection is over
 					}
-					logger.Debug("ListenOnUnixSocket: received", n, "bytes from", uaddr)
-					logger.Debug("ListenOnUnixSocket:", string(buf))
+					logger.Debug("received", n, "bytes:", string(buf))
 
 					//if n > SOCKETMSGMAXLEN {
 					//todo
@@ -160,12 +148,11 @@ func (s *SchedulerSVC) ListenOnUnixSocket() error {
 						}
 
 						logger.Info("launched a task of", task.Msgobj.ObjType, "to",
-							task.Msgobj.DestIPPort, ", taskid =", task.TaskID)
+							task.Msgobj.DestIP, ", taskid =", task.TaskID)
 					}
 				}
 			}(conn)
 		}
-
 	}()
 
 	logger.Info("listening on ", s.unixSocket)
@@ -196,10 +183,13 @@ func (s *SchedulerSVC) LaunchTask(t *(communicate.SocketTask)) error {
 		if err != nil {
 			return err
 		}
-		err = s.SendMsg(packetBytes, t.Msgobj.DestIPPort)
-		if err != nil {
-			return err
+
+		s.SendMsgChan <- SendMsgChan{
+			TaskID:  t.TaskID,
+			Message: packetBytes,
+			DestIP:  t.Msgobj.DestIP,
 		}
+
 	}
 
 	return nil
@@ -210,34 +200,205 @@ func (s *SchedulerSVC) SendFile(fileName string, destIPPort string, destPath str
 	return nil
 }
 
-//SendMsg -- a func of commNode interface
-func (s *SchedulerSVC) SendMsg(message []byte, destIPPort string) error {
-	sendPort, err := net.ListenPacket("udp", ":0")
-	defer sendPort.Close()
+//HandleSendPort -- handle udp sending port
+func (s *SchedulerSVC) HandleSendPort() error {
+	var err error
 
-	if err != nil {
-		logger.Error(err)
-	}
-
-	dst, err := net.ResolveUDPAddr("udp", destIPPort)
+	s.SendPC, err = net.ListenPacket("udp", communicate.SCHSENDPORT)
 	if err != nil {
 		return err
 	}
 
-	_, err = sendPort.WriteTo(message, dst)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer s.SendPC.Close()
+
+		i := 0
+		for {
+			select {
+			case sm := <-s.SendMsgChan:
+				i++
+				logger.Debug(i, "send task", sm.TaskID)
+
+				//send back to caller
+				dst, err := net.ResolveUDPAddr("udp", sm.DestIP+communicate.XCTRECVPPORT)
+				if err != nil {
+					logger.Debug("HandleSendPort-ResolveUDPAddr-", err)
+					continue
+				}
+
+				_, err = s.SendPC.WriteTo(sm.Message, dst)
+				if err != nil {
+					logger.Debug("HandleSendPort-WriteTo-", err)
+					continue
+				}
+
+			case <-s.ctx.Done():
+				break
+			}
+		}
+	}()
+
+	return nil
+}
+
+func getOutFileNames(taskID string) (string, string) {
+	stdOutPath := fmt.Sprintf("%sstdout_%s.txt", SCHDLPATH, taskID)
+	stdErrPath := fmt.Sprintf("%sstderr_%s.txt", SCHDLPATH, taskID)
+
+	return stdOutPath, stdErrPath
+}
+
+func (s *SchedulerSVC) getOutFileHandler(ltype byte, ml *communicate.MSGLine) (*os.File, error) {
+	var err error
+	var f *os.File
+
+	tidStr := ml.TaskID
+	stdOutPath, stdErrPath := getOutFileNames(tidStr)
+
+	logger.Info("got out files:", stdOutPath, stdErrPath)
+
+	if ltype == STDERR {
+		f = s.StderrFileMap[tidStr]
+		if f == nil {
+
+			f, err = os.OpenFile(stdErrPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return nil, err
+			}
+			s.StderrFileMap[tidStr] = f
+		}
+	} else if ltype == STDOUT {
+		f = s.StdoutFileMap[tidStr]
+		if f == nil {
+
+			f, err = os.OpenFile(stdOutPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return nil, err
+			}
+			s.StdoutFileMap[tidStr] = f
+		}
+	}
+
+	return f, nil
+}
+
+//WriteOutFile --
+func (s *SchedulerSVC) WriteOutFile(ltype byte, ml *communicate.MSGLine) error {
+
+	f, err := s.getOutFileHandler(ltype, ml)
 	if err != nil {
 		return err
+	}
+
+	if _, err := f.WriteString(ml.Line + "\n"); err != nil {
+		return err
+	}
+
+	if strings.Contains(ml.Line, communicate.EOF) {
+		if err := f.Close(); err != nil {
+			return err
+		}
+		if ltype == STDERR {
+			delete(s.StderrFileMap, string(ml.TaskID))
+		} else if ltype == STDOUT {
+			delete(s.StdoutFileMap, string(ml.TaskID))
+		}
 	}
 
 	return nil
 }
 
+//HandleRecvPort -- handle udp receiving port
+func (s *SchedulerSVC) HandleRecvPort() error {
+	var err error
+
+	s.RecvPC, err = net.ListenPacket("udp", communicate.SCHRECVPPORT)
+	if err != nil {
+		return err
+	}
+
+	//var theTO time.Duration
+	//theTO = time.Duration(communicate.DEFAULTTIMEOUT) * time.Second  //todo, need register tasks and trace them
+
+	go func() {
+		//ctx, cancel := context.WithTimeout(s.ctx, theTO)
+		//defer cancel()
+
+		defer s.RecvPC.Close()
+
+		for {
+			buf := make([]byte, communicate.MAXUDPPACKET)
+			//n, addr, err := conn.ReadFrom(buf)
+			n, _, err := s.RecvPC.ReadFrom(buf)
+			if err != nil {
+				logger.Error(err)
+				continue
+			}
+
+			if n > 0 {
+				rTL, err := communicate.UnMarshalTL(buf[:n])
+				if err != nil {
+					logger.Error("UnMarshalTL-", err)
+				}
+
+				ml := communicate.MSGLine{}
+				if err = ml.UnMarshalMSG(rTL.LineBytes); err != nil {
+					logger.Error("UnMarshalMSG-", err)
+					continue
+				}
+
+				//todo -- write to task return file
+				logger.Debug("taskid:", ml.TaskID, "type:", rTL.LineType, "line:", ml.Line)
+				if err := s.WriteOutFile(rTL.LineType, &ml); err != nil {
+					logger.Error("WriteOutFile-", err)
+				}
+			}
+
+			select {
+			default:
+				continue
+			//case <-time.After(theTO):
+			//	logger.Error("taskid:", taskID, "timeout")
+			//	break
+			case <-s.ctx.Done():
+				break
+			}
+		}
+
+	}()
+
+	return nil
+}
+
 //Init -- initialising key and port.
-func (s *SchedulerSVC) Init(wg *sync.WaitGroup) error {
+func (s *SchedulerSVC) Init(ctx context.Context, wg *sync.WaitGroup) error {
 	s.privateKey = PVTKEY
 	s.unixSocket = SCHUNIXSOCKET
-	s.udpPort = SHCUDPPORT
 	s.wg = wg
+	s.ctx = ctx
+
+	s.StdoutFileMap = make(map[string]*os.File)
+	s.StderrFileMap = make(map[string]*os.File)
+
+	err := os.MkdirAll(SCHDLPATH, os.ModePerm)
+	if err != nil {
+		return nil
+	}
+
+	err = s.HandleSendPort()
+	if err != nil {
+		return nil
+	}
+	err = s.HandleRecvPort()
+	if err != nil {
+		return nil
+	}
+	err = s.HandleUnixSocket()
+	if err != nil {
+		return nil
+	}
 
 	return nil
 }

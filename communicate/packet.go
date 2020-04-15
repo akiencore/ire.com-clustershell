@@ -7,11 +7,38 @@ import (
 )
 
 const (
+
+	//SCHRECVPPORT --  on the udp port scheduler listen and recerive
+	SCHRECVPPORT = ":33225"
+	//SCHSENDPORT -- on the udp port scheduler send to any host you desire
+	SCHSENDPORT = ":52233"
+	//XCTRECVPPORT -- on the udp port executor listen and recerive
+	XCTRECVPPORT = ":33235"
+	//XCTSENDPORT -- on the udp port executor send to any host you desire
+	XCTSENDPORT = ":52243"
+
 	//MAXPAYLOADLEN --
 	MAXPAYLOADLEN = 32 * 1024 //32K Bytes
+	//MAXUDPPACKET --
+	MAXUDPPACKET = 40 * 1024
 
 	//HEADERLEN -  the length of packet header (other fields except of Data)
 	HEADERLEN = 4 * 4
+
+	//EOF -- end signal of session communication
+	EOF = "<E<O>F>"
+	//STDOUTSTR --
+	STDOUTSTR = "STDOUT"
+	//STDERRSTR --
+	STDERRSTR = "STDERR"
+
+	//STDOUTEOF -- end signal of stdout line
+	STDOUTEOF = STDOUTSTR + EOF
+	//STDERREOF -- end signal of stderr line
+	STDERREOF = STDERRSTR + EOF
+
+	//DEFAULTTIMEOUT --
+	DEFAULTTIMEOUT = 3
 )
 
 //Packet -- means udp packet
@@ -21,6 +48,53 @@ type Packet struct {
 	PayloadLen uint32
 	Checksum   uint32
 	Payload    []byte
+}
+
+//ReturnTaskLine --
+type ReturnTaskLine struct {
+	LineType  byte   //1 -- stdout, 2 -- stderr
+	LineBytes []byte //marshaled MSGLine
+}
+
+//MarshalTL --
+func (r *ReturnTaskLine) MarshalTL() ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	err := binary.Write(buf, binary.BigEndian, r.LineType)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Write(buf, binary.BigEndian, r.LineBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+//UnMarshalTL --
+func UnMarshalTL(data []byte) (*ReturnTaskLine, error) {
+	var r ReturnTaskLine
+
+	reader := bytes.NewReader(data)
+
+	err := binary.Read(reader, binary.BigEndian, &r.LineType)
+	if err != nil {
+		return nil, err
+	}
+
+	lineBytes := make([]byte, len(data)-1) //int64 + byte --> 9
+
+	err = binary.Read(reader, binary.BigEndian, &lineBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	r.LineBytes = lineBytes
+
+	return &r, nil
+
 }
 
 //MarshalPacket -

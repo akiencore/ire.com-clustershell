@@ -3,8 +3,10 @@ package nodesvcs
 import (
 	"bufio"
 	"context"
+	"io"
 	"net"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"ire.com/clustershell/communicate"
@@ -21,26 +23,32 @@ const (
 
 	XCTUNIXSOCKET = `/var/run/ire_clshexecutor.sock`
 
-	XCTUDPPORT = ":33225"
+	STDOUT = 1
+	STDERR = 2
+
+	//XCTPRGNAME -- name of this program
+	XCTPRGNAME = "CSXct"
 )
 
-//LineChan -- for transferring cmd stdout and stderr
-type LineChan struct {
-	TaskID    communicate.TaskIDType
-	LineType  byte //1 -- stdout, 2 -- stderr
-	LineBytes []byte
+//ReturnLineChan -- for transferring cmd stdout and stderr
+type ReturnLineChan struct {
+	ReturnLine communicate.ReturnTaskLine
+	ReturnAdr  net.Addr
 }
 
 //ExecutorSVC --
 type ExecutorSVC struct {
 	publicKey  string
 	unixSocket string
-	udpPort    string
 
-	LineChan chan LineChan
+	RecvPC net.PacketConn //coresponding to recvPort
+	SendPC net.PacketConn //coresponding to sendPort
+
+	ReturnLineChan chan ReturnLineChan
 
 	//WG -- waitgroup for this service
-	wg *sync.WaitGroup
+	wg  *sync.WaitGroup
+	ctx context.Context
 }
 
 //Encrypt -- a func of commNode interface
@@ -55,53 +63,25 @@ func (s *ExecutorSVC) Decrpyt(encrypted []byte, comKey string) (
 	return nil, nil
 }
 
-//HandleSendMsg -- a func of commNode interface
-//handle returned message after invoking SendMsg
-func (s *ExecutorSVC) HandleSendMsg() error {
-	return nil
-}
-
-//HandleListenOnUnixSocket -- a func of commNode interface
-//handle recerived bytes stream on local unix domain socket
-func (s *ExecutorSVC) HandleListenOnUnixSocket() error {
-	return nil
-}
-
-//HandleListenOnUDP -- a func of commNode interface
+//HandleRecvPort -- a func of commNode interface
 //handle recerived bytes stream on UDP port
-func (s *ExecutorSVC) HandleListenOnUDP(ctx context.Context) error {
-	recvPort, err := net.ListenPacket("udp", s.udpPort)
+func (s *ExecutorSVC) HandleRecvPort() error {
+	var err error
+	s.RecvPC, err = net.ListenPacket("udp", communicate.XCTRECVPPORT)
 	if err != nil {
-		logger.Error(err)
+		logger.Error("HandleRecvPort --", err)
+		return err
 	}
 
-	//todo: send back cmd output to caller
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-
-		i := 0
-		for {
-			select {
-			case lc := <-s.LineChan:
-				i++
-				logger.Debug(i, "got LineChan:", lc)
-				//todo send back to caller
-			case <-ctx.Done():
-				break
-			}
-		}
-	}()
-
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		defer recvPort.Close()
+		defer s.RecvPC.Close()
 
 		for {
-			buf := make([]byte, 1024*40)
+			buf := make([]byte, communicate.MAXUDPPACKET)
 			//n, addr, err := conn.ReadFrom(buf)
-			n, adr, err := recvPort.ReadFrom(buf)
+			n, adr, err := s.RecvPC.ReadFrom(buf)
 			if err != nil {
 				logger.Error(err)
 				continue
@@ -121,7 +101,7 @@ func (s *ExecutorSVC) HandleListenOnUDP(ctx context.Context) error {
 				}
 
 				logger.Info("got a task:", *m, "from", adr)
-				go s.DoTask(ctx, m)
+				go s.DoTask(s.ctx, m, adr)
 				//logger.Debug(n, "bytes got. data=", string(p.SrcID[:]),
 				//	string(p.Payload), p, err)
 			}
@@ -132,21 +112,47 @@ func (s *ExecutorSVC) HandleListenOnUDP(ctx context.Context) error {
 }
 
 //DoTask --
-func (s *ExecutorSVC) DoTask(ctx context.Context, m *communicate.MSGObj) {
-	Tid := m.TaskID
-	defer logger.Debug(Tid, "exit DoTask...")
+func (s *ExecutorSVC) DoTask(ctx context.Context, m *communicate.MSGObj, adr net.Addr) {
+	tid := m.TaskID
+	defer logger.Debug(tid, "exit DoTask...")
 
-	logger.Debug(Tid, "enter DoTask...")
+	logger.Debug(tid, "enter DoTask...")
 	if m.ObjType == communicate.ObjTypeShellCmd {
 
-		s.DoShellCMD(ctx, m.Obj.(communicate.ShellCMD).Script, Tid)
+		s.DoShellCMD(ctx, m.Obj.(communicate.ShellCMD).Script, tid, adr)
 
 	}
 }
 
+func wrapStdoutLineChan(tid string, ltype byte,
+	lbytes []byte, adr net.Addr) (*ReturnLineChan, error) {
+
+	var r ReturnLineChan
+
+	ml := communicate.MSGLine{
+		TaskID: tid,
+		Line:   string(lbytes),
+	}
+
+	lineBytes, err := ml.MarshalMSG()
+	if err != nil {
+		return nil, err
+	}
+
+	r = ReturnLineChan{
+		ReturnLine: communicate.ReturnTaskLine{
+			LineType:  ltype,
+			LineBytes: lineBytes,
+		},
+		ReturnAdr: adr,
+	}
+
+	return &r, nil
+}
+
 //DoShellCMD --
 func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
-	tid communicate.TaskIDType) {
+	tid string, adr net.Addr) {
 
 	logger.Debug(tid, "enter DoShellCMD...")
 
@@ -162,7 +168,7 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 
 	innerWG := new(sync.WaitGroup)
 	innerWG.Add(1)
-	go func() {
+	go func(tid string, stdoutIn io.ReadCloser, adr net.Addr) {
 		defer innerWG.Done()
 
 		logger.Debug(tid, "enter goroutine stdoutIn ...")
@@ -170,11 +176,14 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 		scanner := bufio.NewScanner(stdoutIn)
 
 		for scanner.Scan() {
-			s.LineChan <- LineChan{
-				TaskID:    tid,
-				LineType:  1,
-				LineBytes: scanner.Bytes(),
+
+			rLC, err := wrapStdoutLineChan(tid, STDOUT, scanner.Bytes(), adr)
+			if err != nil {
+				logger.Error("wrapStdoutLineChan1-", err)
+				continue
 			}
+
+			s.ReturnLineChan <- *rLC
 
 			select {
 			default:
@@ -183,22 +192,32 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 				break
 			}
 		}
+
+		rLC, err := wrapStdoutLineChan(tid, STDOUT, []byte(communicate.STDOUTEOF), adr)
+		if err != nil {
+			logger.Error("wrapStdoutLineChan2-", err)
+		} else {
+			s.ReturnLineChan <- *rLC
+		}
+
 		logger.Debug(tid, "exit goroutine stdoutIn ...")
-	}()
+	}(tid, stdoutIn, adr)
 
 	innerWG.Add(1)
-	go func() {
+	go func(tid string, stderrIn io.ReadCloser, adr net.Addr) {
 		defer innerWG.Done()
 		logger.Debug(tid, "enter goroutine stderrIn ...")
 
 		scanner := bufio.NewScanner(stderrIn)
 
 		for scanner.Scan() {
-			s.LineChan <- LineChan{
-				TaskID:    tid,
-				LineType:  1,
-				LineBytes: scanner.Bytes(),
+			rLC, err := wrapStdoutLineChan(tid, STDERR, scanner.Bytes(), adr)
+			if err != nil {
+				logger.Error("wrapStdoutLineChan3-", err)
+				continue
 			}
+
+			s.ReturnLineChan <- *rLC
 
 			select {
 			default:
@@ -207,8 +226,16 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 				break
 			}
 		}
+
+		rLC, err := wrapStdoutLineChan(tid, STDERR, []byte(communicate.STDERREOF), adr)
+		if err != nil {
+			logger.Error("wrapStdoutLineChan2-", err)
+		} else {
+			s.ReturnLineChan <- *rLC
+		}
+
 		logger.Debug(tid, "exit goroutine stderrIn ...")
-	}()
+	}(tid, stderrIn, adr)
 
 	innerWG.Wait()
 
@@ -220,34 +247,82 @@ func (s *ExecutorSVC) DoShellCMD(ctx context.Context, cmdStr string,
 	logger.Debug(tid, "exit DoShellCMD ...")
 }
 
-//ListenOnUDP -- a func of commNode interface
-//lauch a continuous listening on UDP port
-func (s *ExecutorSVC) ListenOnUDP() error {
+//HandleUnixSocket -- handle recerived bytes stream on local unix domain socket
+func (s *ExecutorSVC) HandleUnixSocket() error {
 	return nil
 }
 
-//ListenOnUnixSocket -- a func of commNode interface
-//lauch a continuous listening on UNIX domain socket
-func (s *ExecutorSVC) ListenOnUnixSocket() error {
-	return nil
-}
+//HandleSendPort -- handle udp sending port
+func (s *ExecutorSVC) HandleSendPort() error {
+	var err error
+	s.SendPC, err = net.ListenPacket("udp", communicate.XCTSENDPORT)
+	if err != nil {
+		return err
+	}
 
-//SendFile -- a func of commNode interface
-func (s *ExecutorSVC) SendFile(fileName string, destIPPort string, destPath string, fileMode []byte) error {
-	return nil
-}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer s.SendPC.Close()
 
-//SendMsg -- a func of commNode interface
-func (s *ExecutorSVC) SendMsg(message []byte, destIPPort string) error {
+		i := 0
+		for {
+			select {
+			case lc := <-s.ReturnLineChan:
+				i++
+				logger.Debug(i, "got LineChan, bytes number:", len(lc.ReturnLine.LineBytes))
+
+				//send back to caller
+				str := lc.ReturnAdr.String()
+				ipright := strings.LastIndex(str, ":")
+				dststr := str[:ipright] + communicate.SCHRECVPPORT
+				dst, err := net.ResolveUDPAddr("udp", dststr)
+				if err != nil {
+					logger.Error("ResolveUDPAddr-", err)
+					continue
+				}
+
+				returnLine, err := lc.ReturnLine.MarshalTL()
+				if err != nil {
+					logger.Error("MarshalTL-", err)
+					continue
+				}
+				logger.Debug(i, "after marshal, returnLine bytes number:", len(returnLine))
+
+				_, err = s.SendPC.WriteTo(returnLine, dst)
+				if err != nil {
+					logger.Error("WriteTo-", err)
+					continue
+				}
+
+			case <-s.ctx.Done():
+				break
+			}
+		}
+	}()
+
 	return nil
 }
 
 //Init -- this is a default func which will be invoked automatically at instance creating.
-func (s *ExecutorSVC) Init(wg *sync.WaitGroup) error {
+func (s *ExecutorSVC) Init(ctx context.Context, wg *sync.WaitGroup) error {
 	s.publicKey = PUBKEY
 	s.unixSocket = XCTUNIXSOCKET
-	s.udpPort = XCTUDPPORT
 	s.wg = wg
+	s.ctx = ctx
+
+	err := s.HandleSendPort()
+	if err != nil {
+		return nil
+	}
+	err = s.HandleRecvPort()
+	if err != nil {
+		return nil
+	}
+	err = s.HandleUnixSocket()
+	if err != nil {
+		return nil
+	}
 
 	return nil
 }

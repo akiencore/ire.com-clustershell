@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"time"
 
 	"ire.com/clustershell/logger"
 )
@@ -14,6 +13,8 @@ const (
 	ObjTypeTransFile = "transfile"
 	//ObjTypeShellCmd -- type of shell command
 	ObjTypeShellCmd = "shellcmd"
+	//MSGMAXLEN --
+	MSGMAXLEN = 1024 * 32
 )
 
 //TransFile -- for transferring file between two nodes.
@@ -28,11 +29,12 @@ type ShellCMD struct {
 	Script string
 }
 
+
 //MSGObj -- for transferring obj between two nodes.
 //receiver will do consequent action according to ObjType
 type MSGObj struct {
-	TaskID     TaskIDType
-	DestIPPort string
+	TaskID string
+	DestIP string
 	SrcID  string
 
 	//2 types: "shellcmd", "transfile"
@@ -48,20 +50,39 @@ type MSGObj struct {
 	Obj interface{}
 }
 
-//TaskIDType --
-type TaskIDType int64
-
-//TASKID -- the global task id for caller
-var (
-	TASKID = TaskIDType(time.Now().UnixNano())
-)
 
 //SocketTask --
 type SocketTask struct {
-	TaskID TaskIDType
-	SocketConn   *net.UnixConn
-	Msgobj *MSGObj
+	TaskID     string
+	SocketConn *net.UnixConn
+	Msgobj     *MSGObj
 }
+
+//MSGLine -- for return stdout and stderr lines
+type MSGLine struct {
+	TaskID string
+	Line   string
+}
+
+//MarshalMSG --
+func (m *MSGLine) MarshalMSG() ([]byte, error) {
+
+	msgBytes, err := json.Marshal(m)
+
+	return msgBytes, err
+}
+
+
+//UnMarshalMSG --
+func (m *MSGLine) UnMarshalMSG(data []byte) error {
+	err := json.Unmarshal(data, m)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 
 //MarshalMSG --
 func (m *MSGObj) MarshalMSG() ([]byte, error) {
@@ -109,10 +130,10 @@ func (m *MSGObj) UnMarshalMSG(data []byte) error {
 }
 
 //GetMSGListFromSocketBuf --
-func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) (*map[TaskIDType]SocketTask, error) {
+func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) (*map[string]SocketTask, error) {
 	var (
 		err            error
-		socketTasksMap = make(map[TaskIDType]SocketTask)
+		socketTasksMap = make(map[string]SocketTask)
 	)
 
 	defer func() {
@@ -151,9 +172,7 @@ func GetMSGListFromSocketBuf(buf []byte, conn *net.UnixConn) (*map[TaskIDType]So
 
 				logger.Info("got a task message:", m)
 
-				TASKID++
-				m.TaskID = TASKID
-				socketTasksMap[TASKID] = SocketTask{Msgobj: &m, TaskID: TASKID, SocketConn: conn}
+				socketTasksMap[m.TaskID] = SocketTask{Msgobj: &m, TaskID: m.TaskID, SocketConn: conn}
 			}
 
 			jsonStarted = false

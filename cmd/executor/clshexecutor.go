@@ -13,18 +13,22 @@ import (
 func main() {
 	var executorsvc communicate.CommNode
 
+	logger.SetPrefix(nodesvcs.XCTPRGNAME + "-")
 	ctx := context.Background()
-
 	wg := new(sync.WaitGroup)
-	lineChan := make(chan nodesvcs.LineChan, 1)
-	executorsvc = &nodesvcs.ExecutorSVC{LineChan: lineChan}
+	defer wg.Wait()
 
-	executorsvc.Init(wg)
+	returnLineChan := make(chan nodesvcs.ReturnLineChan, 1)
+	executorsvc = &nodesvcs.ExecutorSVC{ReturnLineChan: returnLineChan}
 
-	executorsvc.HandleListenOnUDP(ctx)
+	err := executorsvc.Init(ctx, wg)
+	if err != nil {
+		logger.Error("Init:", err)
+		return
+	}
+
 	logger.Info("Executor is ready to get command.")
 
 	fmt.Println(executorsvc)
-	wg.Wait()
 
 }
