@@ -11,7 +11,7 @@ deps:
 	
 .PHONY: generatekeypairs
 generatekeypairs:
-	go run ./cmd/keygen/generateKeyPairs.go > ./crypting/keys.go
+	go run ./cmd/keygen/generateKeyPairs.go > ./crypting/keypairs/keys.go
 
 .PHONY: clshscheduler
 clshscheduler:
