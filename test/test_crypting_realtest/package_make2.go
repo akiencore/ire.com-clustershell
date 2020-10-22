@@ -1,0 +1,47 @@
+package main
+
+import (
+	"fmt"
+
+	"ire.com/clustershell/crypting"
+)
+
+func main() {
+	fmt.Println("package_make2")
+
+	pvtbyte := `MIIEpQIBAAKCAQEAtHE9ckLaPgT/lnhXN77N1e4q/JfID42IDuHVqUZOAgHslhwp
+	uKkhmSTU0NhJpSmJ6dJs5R2SbhoUIYpC0VsXxLKuuhuEdUh5uKaiQGQ4v04mGujU
+	cf30hf7Rza64lGpb1Ryokff/2PL6zSkqK5jsSxJIQbjWW19TDY+622YOGOaK8r9B
+	/lUl6D9j2lFovK50HO++5iU/Tiv7MofkVRMPpwTCSAaL6WRgayOWSSzAlPdIRJMZ
+	8nTpDivdpKuI6omursBeQlIEZ4heTtHLDGLt0scRUDT9VcuZWdVFwPUHcLPEAn6x
+	tttXJh7urtO9xaFtcYk5JxHVCfKjwJsCVMfCdwIDAQABAoIBAQCbQsDzezCcouJl
+	T8EEV2p3hIp6dAOR1l9XJt0Y3USsF4nCFBOWL/mX84gm96ROuDJR/lzyvAJOOKRP
+	w88Ao1gNSQ5tVtYfsLADwWXk8BegDJdfGi4Ks9DeJ0fRqmBqXCYOdq1ZhEIiI9jI
+	BX6iqt/PLLj9zBSt5JTrG1xWAjdpFiqdhou3rtDbeisOzyVfIfgnXZW6sc1tzRtA
+	JXdfwTwaQAp1UkBqxhwX0wE3lmLWTg1hOjio2QVX03Gj1J/IUqO/wJ/PRcEy2QWO
+	eXcqniZwPUNnRI6RX2I2f5Uh5rhgSewvIBZ6fUEGJRkhQisVNA7lBO2QYOVMS+gV
+	PhJWDKShAoGBAO0MNRr/jV6a1i292ICm+CZ6Oy5/lTkF4S3dtME6Qdgh2SNIeqHo
+	CgNbvKspuHRRjDRcCPfxboLVGOl0WuNLQJSsefhk+CGKT2muC6kU6nZUrXsyhDAe
+	wuVC3C6oEV+rptO3pc1TFzcASyfIozpyGLPgAcqfzqLQiDiUVICZSOkRAoGBAMLe
+	dUzcL2nh6PdQLvZt2XZRsevoH8ZKyV/EsIdEtQaaNh5G6+hrub+YZ/iy0gAlptlr
+	9krdpfhSP3Ds+dqE94EPG2wZId0fibKJTtgCcREWjM5wIeDElmwSbNUVMdG2VygU
+	ttiQzSzrtq45X8rxhB8DUXX1YXNPPeZ6/4n/qzMHAoGBAJ4SA9+rBeROMAB0lkjE
+	DrnpzEknfqR1zUC+lOg9JucvOxKSJGSOzQ6MP/WLbpryPiI0NS7RajYIUAJtOqZS
+	6g+6K+N9wRDsoCQCkXgAoJCjysNaXleQS7qBqT3biSpY1nhcAE442EQvB+7RljdF
+	Gj/oYolxo2Ni11OTZf4TOVFhAoGAcCnPZpAOEmnfyAo1Hc6YrsvTFzAiqeX+BsuV
+	uCZJ9CTrJX445yyqW6eDoNh8m20QnnDP8MOndkkRDxS3s5l5RKXHaO8GWNqATW1P
+	HnI5VlaecWyFc3R0CHyKfBOY+1Zy0DUsEXc3QbXjDmEjzBI7tAYa60Rz9QUVYgZF
+	885fYh0CgYEApYYg6kE7eEuI3WUIw3QFgEOhur2DXEajDxOnAaeSDSyPVYdaOLri
+	yrrw/7twbIGHGjvoEhdNSgt76qplZLa0P+n0Ufi8nk+Ew/zQeVnq6RanxyjXjeRR
+	WAtLaXYeCurr/Pn+wVp3p/c78vRaZRk7nSRoES4nvFqjvSjHpm22w8M=`
+	pubbyte := `AAAAB3NzaC1yc2EAAAADAQABAAABAQC0cT1yQto+BP+WeFc3vs3V7ir8l8gPjYgO4dWpRk4CAeyWHCm4qSGZJNTQ2EmlKYnp0mzlHZJuGhQhikLRWxfEsq66G4R1SHm4pqJAZDi/TiYa6NRx/fSF/tHNrriUalvVHKiR9//Y8vrNKSormOxLEkhBuNZbX1MNj7rbZg4Y5oryv0H+VSXoP2PaUWi8rnQc777mJT9OK/syh+RVEw+nBMJIBovpZGBrI5ZJLMCU90hEkxnydOkOK92kq4jqia6uwF5CUgRniF5O0csMYu3SxxFQNP1Vy5lZ1UXA9Qdws8QCfrG221cmHu6u073FoW1xiTknEdUJ8qPAmwJUx8J3`
+
+	//pvtbyte = strings.Trim(pvtbyte, "\t \n")
+	fmt.Println("private_byte", pvtbyte)
+
+	//pvtkey := crypting.BytesToPrivateKey([]byte(pvtbyte))
+	//fmt.Println("private_key", pvtkey)
+
+	pubkey := crypting.BytesToPublicKey([]byte(pubbyte))
+	fmt.Println("public_key", pubkey, "\n")
+}
