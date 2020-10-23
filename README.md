@@ -1,6 +1,6 @@
 ## A rsa crypting package for confidential information
 
-This is the extension、outsourcing of another project: https://github.com/ChengWu-NJ/clustershell
+This is the extension/outsourcing part of another project: https://github.com/ChengWu-NJ/clustershell
 
 I wrote the package in directory crypting/ to improve it's confidentiality.
 
