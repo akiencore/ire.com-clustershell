@@ -6,8 +6,7 @@ keys.go: after input "make" in clustershell folder, there are 2 pairs of rsa key
 
 ****
 
-crypting.go: provide methods to do crypting
-functions: 
+crypting.go: provide methods to do crypting functions
 -   GenerateKeyPair(int) (*rsa.PrivateKey, *rsa.PublicKey): return rsa privatekey and publickey according to provided length
 -   PrivateKeyToBytes(*rsa.PrivateKey) []byte: convert rsa.PrivateKey to keybytes
 -   PublicKeyToBytes(*rsa.PublicKey) []byte: convert rsa.PublicKey to keybytes
