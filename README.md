@@ -5,7 +5,8 @@ This is the extension/outsourcing part of another project: https://github.com/Ch
 I wrote the package in directory crypting/ to improve it's confidentiality.
 
 </br>
-* work log: https://www.yuque.com/akiencore/qgdgg5/sq9rbl
+
+- work log: https://www.yuque.com/akiencore/qgdgg5/sq9rbl
 
 ****
 # About the package
