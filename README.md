@@ -1,14 +1,12 @@
 ## crypting in rsa key and symmetric key
 
-keys.go: 
-after input "make" in clustershell folder, there are 2 pairs of rsa keys (saved as string).
+keys.go: after input "make" in clustershell folder, there are 2 pairs of rsa keys (saved as string).
 -   For Scheduler: PubkeyScheduler, PvtkeyScheduler
 -   For Executor: PubkeyExecutor, PvtkeyExecutor
 
 ****
 
-crypting.go:
-* provide methods to do crypting
+crypting.go: provide methods to do crypting
 functions: 
 -   GenerateKeyPair(int) (*rsa.PrivateKey, *rsa.PublicKey): return rsa privatekey and publickey according to provided length
 -   PrivateKeyToBytes(*rsa.PrivateKey) []byte: convert rsa.PrivateKey to keybytes
