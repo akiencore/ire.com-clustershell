@@ -1,7 +1,7 @@
 ## crypting in rsa key and symmetric key
 
 keys.go: 
-* after input "make" in clustershell folder, there are 2 pairs of rsa keys (saved as string).
+after input "make" in clustershell folder, there are 2 pairs of rsa keys (saved as string).
 -   For Scheduler: PubkeyScheduler, PvtkeyScheduler
 -   For Executor: PubkeyExecutor, PvtkeyExecutor
 
